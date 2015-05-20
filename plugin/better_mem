@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+
+## why? 'cause, fuck free
+
+export PROC_MEMINFO=$(cat /proc/meminfo)
+
+function extractTotal {
+    export TOTAL=$(echo "$PROC_MEMINFO" | grep -Ei '^memtotal:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+function extractFree {
+    export FREE_PROC=$(echo "$PROC_MEMINFO" | grep -Ei '^memfree:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+function extractBuffers {
+    export BUFFERS=$(echo "$PROC_MEMINFO" | grep -Ei '^buffers:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+function extractCache {
+    export CACHE=$(echo "$PROC_MEMINFO" | grep -Ei '^cached:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+function extractHighUse {
+    export HIGH=$(echo "$PROC_MEMINFO" | grep -Eio '^active:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+function extractLowUse {
+    export LOW=$(echo "$PROC_MEMINFO" | grep -Eio '^inactive:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+## memory that is more than likely actively in use 
+##  and less likely to be reclaimed by the kernel
+
+function extractHeapStackUse {
+    export ANON=$(echo "$PROC_MEMINFO" | grep -Ei '^active\(anon\):[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+## more prone to reclaimation
+function extractFileUse {
+    export FILE=$(echo "$PROC_MEMINFO" | grep -Ei '^active\(file\):[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+function extractUnevictable {
+    export UNEVICTABLE=$(echo "$PROC_MEMINFO" | grep -Ei '^unevictable:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+## fast access memory
+
+function extractMlocked {
+    export PINNEDMEM=$(echo "$PROC_MEMINFO" | grep -Ei 'mlocked:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+## memory that is empty but cannot be allocated b/c sync to disk
+function extractDirty {
+    export DIRTY=$(echo "$PROC_MEMINFO" | grep -Ei 'dirty:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+## memory used for kernel data structures
+
+function extractSlab {
+    export SLAB=$(echo "$PROC_MEMINFO" | grep -Ei 'slab:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+function extractKernel {
+    export KERNEL=$(echo "$PROC_MEMINFO" | grep -Ei 'kernelstack:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+function extractPageTables {
+    export YPAGES=$(echo "$PROC_MEMINFO" | grep -Ei 'pagetables:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+function extractMapped {
+    export MAPPED=$(echo "$PROC_MEMINFO" | grep -Ei 'mapped:[[:space:]]{1,100}[[:digit:]]{1,100}' | awk '{print $2}')
+}
+
+################## Main
+
+if [ "$1" = "-w" ] && [ "$2" -gt "0" ] && [ "$3" = "-c" ] && [ "$4" -gt "0" ]; then
+    extractTotal            ## TOTAL
+    extractFree             ## FREE_PROC
+    extractBuffers          ## BUFFERS
+    extractCache            ## CACHE
+    extractHighUse          ## HIGH
+    extractLowUse           ## LOW 
+    extractHeapStackUse     ## ANON
+    extractFileUse          ## FILE
+    extractUnevictable      ## UNEVICTABLE
+    extractMlocked          ## PINNEDMEM     
+    extractDirty            ## DIRTY (pending write to disk)
+    extractSlab             ## SLAB (kerenl data structures)
+    extractKernel           ## KERNEL (memory allocated for kernel operations)
+    extractPageTables       ## YPAGES (memory held for datastructure which assists virtual to physical address conversion for MMU)
+    extractMapped           ## MAPPED (memory held for library mapping)
+
+    export CONSUMED=$(($HIGH+$LOW+$PINNEDMEM+$DIRTY+$SLAB+$KERNEL+$YPAGES+$MAPPED-$BUFFERS-$CACHE))
+    export USED=$(($TOTAL-$FREE_PROC))
+    ## Used in development. Calculate how far off we are from the heuristicly generated value.
+    #echo "Error: $((($USED-$CONSUMED)/$USED))%"
+    #exit
+    export CONSUMED_M=$(($CONSUMED/1024))
+    export FREE=$(($TOTAL-$CONSUMED))
+    export PERC=$((($CONSUMED*100)/$TOTAL))
+    export TOTAL_M=$(($TOTAL/1024))
+
+    if [[ $4 < $PERC ]]; then
+        echo "Memory: CRITICAL Total: $TOTAL_M - Used: $CONSUMED_M - $PERC% used!|TOTAL=$TOTAL;;;; USED=$CONSUMED;;;; BUFFERS=$BUFFERS;;;; CACHED=$CACHE;;;; ACTIVE=$HIGH;;;; LOW=$LOW;;;; ANON=$ANON;;;; FILE=$FILE;;;; UNEVICTABLE=$UNEVICTABLE;;;; MLOCKED=$PINNEDMEM;;;; SLAB=$SLAB;;;; KERNEL=$KERNEL;;;; PAGETABLES=$YPAGES;;;; MAPPED=$MAPPED;;;;"
+    elif [[ $2 < $PERC ]]; then
+        echo "MEMORY: WARNING Total: $TOTAL_M - Used: $CONSUMED_M - $PERC% used!|TOTAL=$TOTAL;;;; USED=$CONSUMED;;;; BUFFERS=$BUFFERS;;;; CACHED=$CACHE;;;; ACTIVE=$HIGH;;;; LOW=$LOW;;;; ANON=$ANON;;;; FILE=$FILE;;;; UNEVICTABLE=$UNEVICTABLE;;;; MLOCKED=$PINNEDMEM;;;; SLAB=$SLAB;;;; KERNEL=$KERNEL;;;; PAGETABLES=$YPAGES;;;; MAPPED=$MAPPED;;;;"
+    else
+        echo "MEMORY: OK Total: $TOTAL_M - Used: $CONSUMED_M - $PERC% used!|TOTAL=$TOTAL;;;; USED=$CONSUMED;;;; BUFFERS=$BUFFERS;;;; CACHED=$CACHE;;;; ACTIVE=$HIGH;;;; LOW=$LOW;;;; ANON=$ANON;;;; FILE=$FILE;;;; UNEVICTABLE=$UNEVICTABLE;;;; MLOCKED=$PINNEDMEM;;;; SLAB=$SLAB;;;; KERNEL=$KERNEL;;;; PAGETABLES=$YPAGES;;;; MAPPED=$MAPPED;;;;"
+    fi
+else
+    echo "better_check_mem v0.1"
+    echo "Memory Utilization Alerting (using percentages)"
+    echo "Initial Author: Kevin Phillips <kevin.phillips@omadahealth.com>"
+    echo "Contributing Authors:"
+    echo ""
+    echo "Usage:"
+    echo "better_check_mem -w <warn-level> -c <critical-level>"
+    echo ""
+    echo "Pass integer values only."
+    echo ""
+    echo "It's up on the internet license."
+    echo "No Copyright. Use and modify freely."
+    echo "Inspired by Lukasz Gogolin <lukasz.gogolin@gmail.com> et al. check_mem v1.1."
+fi
